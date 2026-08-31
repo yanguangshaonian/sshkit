@@ -58,8 +58,8 @@ class SshError(Exception):
             return "SSH 传输异常"
         return "SSH 未知异常"
 
-    def build_alert_message(self, host_name: str, ip: str, port: int) -> str:
-        return f"{self.title_text()}: ({host_name} {ip}:{port}), 错误: {self}"
+    def build_alert_message(self, client_name: str, ip: str, port: int) -> str:
+        return f"{self.title_text()}: ({client_name} {ip}:{port}), 错误: {self}"
 
 
 # =========================

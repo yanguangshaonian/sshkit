@@ -1,5 +1,7 @@
+import socket
 import time
 
+import paramiko
 import pytest
 
 from sshkit import CommandResult, SshClient, SshError, SshErrorKind
@@ -16,6 +18,9 @@ class FakeTransport:
     def open_session(self, timeout=None):
         return self.channel
 
+    def set_keepalive(self, interval):
+        self.keepalive_interval = interval
+
 
 class FakeStream:
     def __init__(self, channel):
@@ -27,12 +32,19 @@ class FakeStream:
 
 
 class FakeChannel:
-    def __init__(self, stdout_chunks=None, stderr_chunks=None, never_exits=False):
+    def __init__(
+        self,
+        stdout_chunks=None,
+        stderr_chunks=None,
+        never_exits=False,
+        exit_status=0,
+    ):
         self.stdout_chunks = list(stdout_chunks or [])
         self.stderr_chunks = list(stderr_chunks or [])
         self.never_exits = never_exits
         self.closed = False
         self.streams = []
+        self.exit_status = exit_status
 
     def settimeout(self, timeout):
         self.timeout = timeout
@@ -64,7 +76,7 @@ class FakeChannel:
         return not self.never_exits and not self.stdout_chunks and not self.stderr_chunks
 
     def recv_exit_status(self):
-        return 0
+        return self.exit_status
 
     def close(self):
         self.closed = True
@@ -85,6 +97,36 @@ class FakeClient:
         self.channel.close()
 
 
+class FakeConnectClient:
+    def __init__(self, connect_error=None, load_error=None):
+        self.transport = FakeTransport(FakeChannel())
+        self.connect_error = connect_error
+        self.load_error = load_error
+        self.closed = False
+
+    def set_missing_host_key_policy(self, policy):
+        self.policy = policy
+
+    def load_system_host_keys(self):
+        if self.load_error is not None:
+            raise self.load_error
+
+    def load_host_keys(self, path):
+        self.known_hosts_path = path
+
+    def connect(self, **kwargs):
+        self.connect_kwargs = kwargs
+        if self.connect_error is not None:
+            raise self.connect_error
+
+    def get_transport(self):
+        return self.transport
+
+    def close(self):
+        self.closed = True
+        self.transport.active = False
+
+
 def make_client(channel):
     client = SshClient("host", "127.0.0.1", 22, "user", password="password")
     client._client = FakeClient(channel)
@@ -101,6 +143,18 @@ def test_public_command_result_and_dual_stream_execution():
     assert result.stderr_text == "err"
     assert channel.closed
     assert all(stream.closed for stream in channel.streams)
+
+
+def test_execute_preserves_exit_status_and_environment():
+    channel = FakeChannel([b"out"], [b"err"], exit_status=7)
+    result = make_client(channel).execute(
+        "command",
+        env={"LANG": "C"},
+        timeout_seconds=1.0,
+    )
+
+    assert result.exit_status == 7
+    assert channel.environment == {"LANG": "C"}
 
 
 def test_execute_timeout_closes_client_and_channel():
@@ -141,6 +195,72 @@ def test_client_name_is_stored_for_diagnostics():
     )
 
     assert client.client_name == "example-client"
+
+
+def test_connect_uses_ip_and_configures_keepalive(monkeypatch):
+    paramiko_client = FakeConnectClient()
+    monkeypatch.setattr(paramiko, "SSHClient", lambda: paramiko_client)
+    client = SshClient(
+        client_name="example-client",
+        ip="192.0.2.10",
+        port=2222,
+        username="user",
+        password="password",
+        known_hosts_path="known_hosts",
+        connect_timeout_seconds=2.5,
+        keepalive_interval_seconds=9,
+    )
+
+    client.connect()
+
+    assert client.is_connected()
+    assert paramiko_client.known_hosts_path == "known_hosts"
+    assert paramiko_client.connect_kwargs == {
+        "hostname": "192.0.2.10",
+        "port": 2222,
+        "username": "user",
+        "timeout": 2.5,
+        "auth_timeout": 2.5,
+        "banner_timeout": 2.5,
+        "allow_agent": False,
+        "look_for_keys": False,
+        "password": "password",
+    }
+    assert paramiko_client.transport.keepalive_interval == 9
+
+
+@pytest.mark.parametrize(
+    ("connect_error", "expected_kind"),
+    [
+        (paramiko.AuthenticationException("denied"), SshErrorKind.AUTHENTICATION),
+        (socket.timeout("timed out"), SshErrorKind.TIMEOUT),
+        (paramiko.SSHException("transport"), SshErrorKind.CONNECTION),
+    ],
+)
+def test_connect_maps_errors_and_closes_client(
+    monkeypatch,
+    connect_error,
+    expected_kind,
+):
+    paramiko_client = FakeConnectClient(connect_error=connect_error)
+    monkeypatch.setattr(paramiko, "SSHClient", lambda: paramiko_client)
+    client = SshClient("example-client", "192.0.2.10", 22, "user", password="x")
+
+    with pytest.raises(SshError) as error_info:
+        client.connect()
+
+    assert error_info.value.kind == expected_kind
+    assert error_info.value.cause is connect_error
+    assert paramiko_client.closed
+
+
+def test_close_is_idempotent():
+    client = make_client(FakeChannel())
+
+    client.close()
+    client.close()
+
+    assert client._client is None
 
 
 def test_invalid_timeout_is_rejected_before_connection_check():
