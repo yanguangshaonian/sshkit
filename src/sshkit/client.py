@@ -72,23 +72,6 @@ class CommandResult:
     stderr_text: str
 
 
-# =========================
-# 循环处理器基类
-# handler 自己保存首次运行状态和上一轮错误
-# run 和 on_error 统一签名
-# =========================
-class SshLoopHandler:
-    def __init__(self) -> None:
-        self.is_first_run = True
-        self.last_error: Optional[Exception] = None
-
-    def run(self, ssh_client: "SshClient") -> None:
-        raise NotImplementedError("子类必须实现 run 方法")
-
-    def on_error(self, ssh_client: "SshClient") -> None:
-        raise NotImplementedError("子类必须实现 on_error 方法")
-
-
 class _RejectUnknownHostKeyPolicy(paramiko.RejectPolicy):
     def missing_host_key(self, client, hostname, key) -> None:
         raise SshError(
@@ -252,7 +235,7 @@ class SshClient:
     # 执行远端命令
     # 不自动连接,不自动重试,不自动关闭 SSH client
     # =========================
-    def execute(
+    def run_once(
         self,
         command: str,
         env: Optional[Dict[str, str]] = None,
@@ -380,39 +363,6 @@ class SshClient:
                 timeout_timer.cancel()
             self._close_quietly(channel)
             self._close_quietly(stdin)
-
-    # =========================
-    # 循环运行入口
-    # handler 自己保存首次运行状态和最近一次错误
-    # =========================
-    def loop_run(
-        self,
-        handler: SshLoopHandler,
-        interval_seconds: float,
-    ) -> None:
-        if not isfinite(interval_seconds):
-            raise ValueError("interval_seconds 必须是有限数值")
-
-        while True:
-            try:
-                if not self.is_connected():
-                    self.connect()
-                handler.run(self)
-                handler.last_error = None
-            except Exception as exc:
-                handler.last_error = exc
-                if isinstance(exc, SshError) and self._should_reset_connection(exc):
-                    self.close()
-                try:
-                    handler.on_error(self)
-                except Exception:
-                    pass
-            finally:
-                handler.is_first_run = False
-
-            if interval_seconds <= 0:
-                break
-            time.sleep(interval_seconds)
 
     @staticmethod
     def _deadline_expired(deadline: Optional[float]) -> bool:

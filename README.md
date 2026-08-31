@@ -26,7 +26,7 @@ client = SshClient(
 
 try:
 	client.connect()
-	result = client.execute("uname -a", timeout_seconds=5.0)
+	result = client.run_once("uname -a", timeout_seconds=5.0)
 	print(result.exit_status)
 	print(result.stdout_text)
 finally:
@@ -46,7 +46,7 @@ with SshClient(
 	password="password",
 	known_hosts_path="/home/deploy/.ssh/known_hosts",
 ) as client:
-	result = client.execute("hostname", timeout_seconds=5.0)
+	result = client.run_once("hostname", timeout_seconds=5.0)
 ```
 
 `password` 和 `key_path` 必须二选一.加密私钥可以通过 `key_passphrase` 传入 passphrase.程序不会自动使用 `ssh-agent` 或本地默认私钥.

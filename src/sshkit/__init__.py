@@ -5,7 +5,6 @@ from .client import (
     SshClient,
     SshError,
     SshErrorKind,
-    SshLoopHandler,
 )
 
 __all__ = [
@@ -13,7 +12,6 @@ __all__ = [
     "SshClient",
     "SshError",
     "SshErrorKind",
-    "SshLoopHandler",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.1.4"

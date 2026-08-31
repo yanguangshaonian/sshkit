@@ -135,7 +135,7 @@ def make_client(channel):
 
 def test_public_command_result_and_dual_stream_execution():
     channel = FakeChannel([b"out-1", b"out-2"], [b"err"])
-    result = make_client(channel).execute("printf test", timeout_seconds=1.0)
+    result = make_client(channel).run_once("printf test", timeout_seconds=1.0)
 
     assert isinstance(result, CommandResult)
     assert result.exit_status == 0
@@ -145,9 +145,9 @@ def test_public_command_result_and_dual_stream_execution():
     assert all(stream.closed for stream in channel.streams)
 
 
-def test_execute_preserves_exit_status_and_environment():
+def test_run_once_preserves_exit_status_and_environment():
     channel = FakeChannel([b"out"], [b"err"], exit_status=7)
-    result = make_client(channel).execute(
+    result = make_client(channel).run_once(
         "command",
         env={"LANG": "C"},
         timeout_seconds=1.0,
@@ -157,12 +157,12 @@ def test_execute_preserves_exit_status_and_environment():
     assert channel.environment == {"LANG": "C"}
 
 
-def test_execute_timeout_closes_client_and_channel():
+def test_run_once_timeout_closes_client_and_channel():
     channel = FakeChannel(never_exits=True)
     client = make_client(channel)
 
     with pytest.raises(SshError) as error_info:
-        client.execute("hang", timeout_seconds=0.03)
+        client.run_once("hang", timeout_seconds=0.03)
 
     assert error_info.value.kind == SshErrorKind.TIMEOUT
     assert client._client.closed
@@ -267,24 +267,4 @@ def test_invalid_timeout_is_rejected_before_connection_check():
     client = SshClient("host", "127.0.0.1", 22, "user", password="password")
 
     with pytest.raises(ValueError):
-        client.execute("command", timeout_seconds=float("nan"))
-
-
-def test_loop_keeps_original_error_when_error_handler_fails():
-    class ErrorHandler:
-        is_first_run = True
-        last_error = None
-
-        def run(self, ssh_client):
-            raise RuntimeError("original error")
-
-        def on_error(self, ssh_client):
-            raise RuntimeError("handler error")
-
-    client = SshClient("host", "127.0.0.1", 22, "user", password="password")
-    client._client = FakeClient(FakeChannel())
-    handler = ErrorHandler()
-    client.loop_run(handler, 0)
-
-    assert str(handler.last_error) == "original error"
-    assert handler.is_first_run is False
+        client.run_once("command", timeout_seconds=float("nan"))
