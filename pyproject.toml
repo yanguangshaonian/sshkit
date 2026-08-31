@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sshkit"
+version = "0.1.0"
+description = "安全的 SSH 客户端工具"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "yanguangshaonian" },
+]
+license = "MIT"
+keywords = ["ssh", "paramiko", "remote-command"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Networking",
+]
+dependencies = [
+    "paramiko>=3.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/yanguangshaonian/sshkit"
+Repository = "https://github.com/yanguangshaonian/sshkit"
+Issues = "https://github.com/yanguangshaonian/sshkit/issues"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

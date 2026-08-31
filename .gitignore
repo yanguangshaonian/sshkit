@@ -49,6 +49,12 @@ coverage.xml
 *.py.cover
 .hypothesis/
 .pytest_cache/
+
+# SSH credentials and host keys
+*.pem
+*.key
+known_hosts
+known_hosts.*
 cover/
 
 # Translations

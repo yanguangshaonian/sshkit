@@ -24,7 +24,7 @@ class SshErrorKind(Enum):
 
 # =========================
 # SSH 统一异常定义
-# 使用 kind 区分错误类型，避免定义过多异常子类
+# 使用 kind 区分错误类型,避免定义过多异常子类
 # =========================
 class SshError(Exception):
     def __init__(
@@ -143,7 +143,7 @@ class SshClient:
 
     # =========================
     # 连接状态检查
-    # 这里只做轻量检查，不保证下一次操作一定成功
+    # 这里只做轻量检查,不保证下一次操作一定成功
     # =========================
     def is_connected(self) -> bool:
         if self._client is None:
@@ -153,7 +153,7 @@ class SshClient:
 
     # =========================
     # 建立 SSH 连接
-    # 这里只负责建立连接，不负责重试策略
+    # 这里只负责建立连接,不负责重试策略
     # =========================
     def connect(self) -> None:
         if self.is_connected():
@@ -241,7 +241,7 @@ class SshClient:
 
     # =========================
     # 关闭 SSH 连接
-    # 保持幂等，允许重复调用
+    # 保持幂等,允许重复调用
     # =========================
     def close(self) -> None:
         if self._client is not None:
@@ -250,7 +250,7 @@ class SshClient:
 
     # =========================
     # 执行远端命令
-    # 不自动连接、不自动重试、不自动关闭 SSH client
+    # 不自动连接,不自动重试,不自动关闭 SSH client
     # =========================
     def execute(
         self,
@@ -266,7 +266,7 @@ class SshClient:
         if self._client is None or not self.is_connected():
             raise SshError(
                 kind=SshErrorKind.NOT_CONNECTED,
-                message="SSH 连接尚未建立或已失活，请由上层决定是否重连",
+                message="SSH 连接尚未建立或已失活,请由上层决定是否重连",
             )
 
         stdin = None
@@ -284,7 +284,7 @@ class SshClient:
             if transport is None or not transport.is_active():
                 raise SshError(
                     kind=SshErrorKind.NOT_CONNECTED,
-                    message="SSH 连接尚未建立或已失活，请由上层决定是否重连",
+                    message="SSH 连接尚未建立或已失活,请由上层决定是否重连",
                 )
 
             open_timeout = (
