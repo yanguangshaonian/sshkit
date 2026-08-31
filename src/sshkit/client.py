@@ -100,7 +100,7 @@ class _RejectUnknownHostKeyPolicy(paramiko.RejectPolicy):
 class SshClient:
     def __init__(
         self,
-        hostname: str,
+        client_name: str,
         ip: str,
         port: int,
         username: str,
@@ -122,7 +122,7 @@ class SshClient:
         if not isfinite(keepalive_interval_seconds) or keepalive_interval_seconds < 0:
             raise ValueError("keepalive_interval_seconds 不能小于 0")
 
-        self.hostname = hostname
+        self.client_name = client_name
         self.ip = ip
         self.port = port
         self._username = username

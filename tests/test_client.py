@@ -131,6 +131,18 @@ def test_invalid_configuration_is_rejected():
         )
 
 
+def test_client_name_is_stored_for_diagnostics():
+    client = SshClient(
+        client_name="example-client",
+        ip="127.0.0.1",
+        port=22,
+        username="user",
+        password="password",
+    )
+
+    assert client.client_name == "example-client"
+
+
 def test_invalid_timeout_is_rejected_before_connection_check():
     client = SshClient("host", "127.0.0.1", 22, "user", password="password")
 

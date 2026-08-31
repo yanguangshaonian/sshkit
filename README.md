@@ -16,7 +16,7 @@ SSH 主机密钥默认使用 `RejectPolicy` 校验.连接前,请确保目标主�
 from sshkit import SshClient, SshError
 
 client = SshClient(
-	hostname="trade.example.com",
+	client_name="example-client",
 	ip="192.0.2.10",
 	port=22,
 	username="deploy",
@@ -39,7 +39,7 @@ finally:
 from sshkit import SshClient
 
 with SshClient(
-	hostname="trade.example.com",
+	client_name="example-client",
 	ip="192.0.2.10",
 	port=22,
 	username="deploy",
