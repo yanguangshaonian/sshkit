@@ -397,18 +397,6 @@ class SshClient:
             pass
 
     # =========================
-    # 判断哪些错误需要重置连接
-    # =========================
-    @staticmethod
-    def _should_reset_connection(exc: SshError) -> bool:
-        return exc.kind in {
-            SshErrorKind.CONNECTION,
-            SshErrorKind.NOT_CONNECTED,
-            SshErrorKind.TIMEOUT,
-            SshErrorKind.TRANSPORT,
-        }
-
-    # =========================
     # 加载私钥
     # 依次尝试常见私钥格式
     # =========================
@@ -428,7 +416,7 @@ class SshClient:
         for key_loader in key_loaders:
             try:
                 return key_loader(key_path, password=key_passphrase)
-            except (FileNotFoundError, PermissionError, OSError) as exc:
+            except OSError as exc:
                 raise SshError(
                     kind=SshErrorKind.KEY_LOAD,
                     message=f"无法读取私钥文件: {key_path}: {exc}",
