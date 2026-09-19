@@ -1,6 +1,6 @@
 # sshkit
 
-一个基于 Paramiko 的 SSH 客户端工具,提供安全的主机密钥校验,远程命令执行,统一异常和循环处理能力.
+一个基于 Paramiko 的 SSH 客户端工具,提供密码或私钥认证,远程命令执行,统一异常和循环处理能力.
 
 ## 安装
 
@@ -10,7 +10,7 @@ python -m pip install sshkit
 
 ## 快速使用
 
-SSH 主机密钥默认使用 `RejectPolicy` 校验.连接前,请确保目标主机已存在于系统 `known_hosts` 或指定的文件中.
+连接时自动接受服务器主机密钥,不校验服务器身份,不读取或写入 `known_hosts` 文件.用户认证仍使用密码或私钥,加密私钥可提供私钥口令.
 
 ```python
 from sshkit import SshClient, SshError
@@ -21,7 +21,6 @@ client = SshClient(
 	port=22,
 	username="deploy",
 	key_path="/home/deploy/.ssh/id_ed25519",
-	known_hosts_path="/home/deploy/.ssh/known_hosts",
 )
 
 try:
@@ -44,7 +43,6 @@ with SshClient(
 	port=22,
 	username="deploy",
 	password="password",
-	known_hosts_path="/home/deploy/.ssh/known_hosts",
 ) as client:
 	result = client.run_once("hostname", timeout_seconds=5.0)
 ```
@@ -63,9 +61,13 @@ try:
 except SshError as error:
 	if error.kind == SshErrorKind.AUTHENTICATION:
 		print("认证失败")
-	elif error.kind == SshErrorKind.HOST_KEY:
-		print("主机密钥校验失败")
+	elif error.kind == SshErrorKind.KEY_LOAD:
+		print("私钥加载失败")
 ```
+
+`str(error.kind)` 返回中文错误类型,`error.kind.value` 保留英文分类值.`str(error)` 返回完整错误消息,`error.cause` 保留原始异常.
+
+`error.build_alert_message(client.client_name, client.ip, client.port)` 仅拼接客户端标识、地址和完整错误消息,例如 `(example-client 192.0.2.10:22), 错误: SSH 认证失败: denied`,不再额外添加类型标题.
 
 ## 开发
 

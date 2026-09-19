@@ -17,9 +17,22 @@ class SshErrorKind(Enum):
     CONNECTION = "connection"
     AUTHENTICATION = "authentication"
     KEY_LOAD = "key_load"
-    HOST_KEY = "host_key"
     TIMEOUT = "timeout"
     TRANSPORT = "transport"
+
+    def __str__(self) -> str:
+        if self is SshErrorKind.NOT_CONNECTED:
+            return "SSH 尚未连接"
+        if self is SshErrorKind.CONNECTION:
+            return "SSH 连接失败"
+        if self is SshErrorKind.AUTHENTICATION:
+            return "SSH 认证失败"
+        if self is SshErrorKind.KEY_LOAD:
+            return "SSH 私钥加载失败"
+        if self is SshErrorKind.TIMEOUT:
+            return "SSH 操作超时"
+        if self is SshErrorKind.TRANSPORT:
+            return "SSH 传输异常"
 
 
 # =========================
@@ -35,31 +48,10 @@ class SshError(Exception):
     ) -> None:
         super().__init__(message)
         self.kind = kind
-        self.message = message
         self.cause = cause
 
-    def __str__(self) -> str:
-        return self.message
-
-    def title_text(self) -> str:
-        if self.kind == SshErrorKind.AUTHENTICATION:
-            return "SSH 认证失败"
-        if self.kind == SshErrorKind.KEY_LOAD:
-            return "SSH 私钥加载失败"
-        if self.kind == SshErrorKind.HOST_KEY:
-            return "SSH 主机密钥校验失败"
-        if self.kind == SshErrorKind.CONNECTION:
-            return "SSH 连接失败"
-        if self.kind == SshErrorKind.NOT_CONNECTED:
-            return "SSH 尚未连接"
-        if self.kind == SshErrorKind.TIMEOUT:
-            return "SSH 操作超时"
-        if self.kind == SshErrorKind.TRANSPORT:
-            return "SSH 传输异常"
-        return "SSH 未知异常"
-
     def build_alert_message(self, client_name: str, ip: str, port: int) -> str:
-        return f"{self.title_text()}: ({client_name} {ip}:{port}), 错误: {self}"
+        return f"({client_name} {ip}:{port}), 错误: {self}"
 
 
 # =========================
@@ -70,14 +62,6 @@ class CommandResult:
     exit_status: int
     stdout_text: str
     stderr_text: str
-
-
-class _RejectUnknownHostKeyPolicy(paramiko.RejectPolicy):
-    def missing_host_key(self, client, hostname, key) -> None:
-        raise SshError(
-            kind=SshErrorKind.HOST_KEY,
-            message=f"SSH 主机密钥未在 known_hosts 中找到: {hostname}",
-        )
 
 
 class SshClient:
@@ -92,7 +76,6 @@ class SshClient:
         connect_timeout_seconds: float = 3.0,
         keepalive_interval_seconds: int = 15,
         key_passphrase: Optional[str] = None,
-        known_hosts_path: Optional[str] = None,
     ) -> None:
         if password is None and key_path is None:
             raise ValueError("必须提供 password 或 key_path")
@@ -112,7 +95,6 @@ class SshClient:
         self._password = password
         self._key_path = key_path
         self._key_passphrase = key_passphrase
-        self._known_hosts_path = known_hosts_path
         self._connect_timeout_seconds = connect_timeout_seconds
         self._keepalive_interval_seconds = keepalive_interval_seconds
         self._client: Optional[paramiko.SSHClient] = None
@@ -146,7 +128,7 @@ class SshClient:
             self._client = None
 
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(_RejectUnknownHostKeyPolicy())
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         connect_kwargs = {
             "hostname": self.ip,
             "port": self.port,
@@ -159,23 +141,6 @@ class SshClient:
         }
 
         try:
-            try:
-                client.load_system_host_keys()
-                if self._known_hosts_path is not None:
-                    client.load_host_keys(self._known_hosts_path)
-            except (OSError, UnicodeError) as exc:
-                raise SshError(
-                    kind=SshErrorKind.CONNECTION,
-                    message=f"SSH known_hosts 配置失败: {exc}",
-                    cause=exc,
-                ) from exc
-            except paramiko.hostkeys.InvalidHostKey as exc:
-                raise SshError(
-                    kind=SshErrorKind.HOST_KEY,
-                    message=f"SSH known_hosts 内容无效: {exc}",
-                    cause=exc,
-                ) from exc
-
             if self._key_path is not None:
                 connect_kwargs["pkey"] = self._load_private_key(
                     self._key_path,
@@ -195,13 +160,6 @@ class SshClient:
             raise SshError(
                 kind=SshErrorKind.AUTHENTICATION,
                 message=f"SSH 认证失败: {exc}",
-                cause=exc,
-            ) from exc
-        except paramiko.BadHostKeyException as exc:
-            self._close_quietly(client)
-            raise SshError(
-                kind=SshErrorKind.HOST_KEY,
-                message=f"SSH 主机密钥校验失败: {exc}",
                 cause=exc,
             ) from exc
         except SshError:

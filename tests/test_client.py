@@ -1,10 +1,38 @@
 import socket
 import time
+from unittest.mock import Mock
 
 import paramiko
 import pytest
 
 from sshkit import CommandResult, SshClient, SshError, SshErrorKind
+
+
+@pytest.mark.parametrize(
+    ("kind", "value", "title"),
+    [
+        (SshErrorKind.NOT_CONNECTED, "not_connected", "SSH 尚未连接"),
+        (SshErrorKind.CONNECTION, "connection", "SSH 连接失败"),
+        (SshErrorKind.AUTHENTICATION, "authentication", "SSH 认证失败"),
+        (SshErrorKind.KEY_LOAD, "key_load", "SSH 私钥加载失败"),
+        (SshErrorKind.TIMEOUT, "timeout", "SSH 操作超时"),
+        (SshErrorKind.TRANSPORT, "transport", "SSH 传输异常"),
+    ],
+)
+def test_error_kind_and_alert_message(kind, value, title):
+    cause = ValueError("测试错误")
+    message = f"{title}: {cause}"
+    error = SshError(kind, message, cause)
+
+    assert str(kind) == title
+    assert kind.value == value
+    assert str(error) == message
+    assert error.args == (message,)
+    assert error.kind is kind
+    assert error.cause is cause
+    assert error.build_alert_message("host", "192.0.2.10", 2222) == (
+        f"(host 192.0.2.10:2222), 错误: {message}"
+    )
 
 
 class FakeTransport:
@@ -98,21 +126,13 @@ class FakeClient:
 
 
 class FakeConnectClient:
-    def __init__(self, connect_error=None, load_error=None):
+    def __init__(self, connect_error=None):
         self.transport = FakeTransport(FakeChannel())
         self.connect_error = connect_error
-        self.load_error = load_error
         self.closed = False
 
     def set_missing_host_key_policy(self, policy):
         self.policy = policy
-
-    def load_system_host_keys(self):
-        if self.load_error is not None:
-            raise self.load_error
-
-    def load_host_keys(self, path):
-        self.known_hosts_path = path
 
     def connect(self, **kwargs):
         self.connect_kwargs = kwargs
@@ -206,7 +226,6 @@ def test_connect_uses_ip_and_configures_keepalive(monkeypatch):
         port=2222,
         username="user",
         password="password",
-        known_hosts_path="known_hosts",
         connect_timeout_seconds=2.5,
         keepalive_interval_seconds=9,
     )
@@ -214,7 +233,7 @@ def test_connect_uses_ip_and_configures_keepalive(monkeypatch):
     client.connect()
 
     assert client.is_connected()
-    assert paramiko_client.known_hosts_path == "known_hosts"
+    assert isinstance(paramiko_client.policy, paramiko.AutoAddPolicy)
     assert paramiko_client.connect_kwargs == {
         "hostname": "192.0.2.10",
         "port": 2222,
@@ -227,6 +246,61 @@ def test_connect_uses_ip_and_configures_keepalive(monkeypatch):
         "password": "password",
     }
     assert paramiko_client.transport.keepalive_interval == 9
+
+
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        {"password": "password"},
+        {"key_path": "private_key"},
+        {"key_path": "private_key", "key_passphrase": "passphrase"},
+    ],
+)
+def test_connect_accepts_unknown_host_without_host_key_files(monkeypatch, credentials):
+    paramiko_client = paramiko.SSHClient()
+    transport = Mock()
+    server_key = Mock()
+    server_key.get_name.return_value = "ssh-ed25519"
+    server_key.get_fingerprint.return_value = b"fingerprint"
+    private_key = Mock()
+    load_private_key = Mock(return_value=private_key)
+    monkeypatch.setattr(SshClient, "_load_private_key", load_private_key)
+    monkeypatch.setattr(paramiko, "SSHClient", lambda: paramiko_client)
+    monkeypatch.setattr(paramiko_client, "get_transport", Mock(return_value=transport))
+    monkeypatch.setattr(paramiko_client, "_log", Mock())
+    file_access = Mock(side_effect=AssertionError("不应访问主机密钥文件"))
+    monkeypatch.setattr("builtins.open", file_access)
+    for method in ("load_system_host_keys", "load_host_keys", "save_host_keys"):
+        monkeypatch.setattr(paramiko_client, method, file_access)
+
+    def accept_server_key(**kwargs):
+        paramiko_client._policy.missing_host_key(
+            paramiko_client, kwargs["hostname"], server_key
+        )
+
+    connect = Mock(side_effect=accept_server_key)
+    monkeypatch.setattr(paramiko_client, "connect", connect)
+    client = SshClient("host", "192.0.2.10", 22, "user", **credentials)
+
+    client.connect()
+
+    assert client.is_connected()
+    assert paramiko_client.get_host_keys()["192.0.2.10"]["ssh-ed25519"] is server_key
+    file_access.assert_not_called()
+    kwargs = connect.call_args.kwargs
+    assert kwargs["username"] == "user"
+    assert kwargs["allow_agent"] is False
+    assert kwargs["look_for_keys"] is False
+    if "key_path" in credentials:
+        load_private_key.assert_called_once_with(
+            credentials["key_path"], credentials.get("key_passphrase")
+        )
+        assert kwargs["pkey"] is private_key
+        assert "password" not in kwargs
+    else:
+        load_private_key.assert_not_called()
+        assert kwargs["password"] == credentials["password"]
+        assert "pkey" not in kwargs
 
 
 @pytest.mark.parametrize(
@@ -251,6 +325,7 @@ def test_connect_maps_errors_and_closes_client(
 
     assert error_info.value.kind == expected_kind
     assert error_info.value.cause is connect_error
+    assert error_info.value.__cause__ is connect_error
     assert paramiko_client.closed
 
 
