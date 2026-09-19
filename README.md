@@ -65,9 +65,7 @@ except SshError as error:
 		print("私钥加载失败")
 ```
 
-`str(error.kind)` 返回中文错误类型,`error.kind.value` 保留英文分类值.`str(error)` 返回完整错误消息,`error.cause` 保留原始异常.
-
-`error.build_alert_message(client.client_name, client.ip, client.port)` 仅拼接客户端标识、地址和完整错误消息,例如 `(example-client 192.0.2.10:22), 错误: SSH 认证失败: denied`,不再额外添加类型标题.
+`str(error.kind)` 返回中文错误类型,`error.kind.value` 保留英文分类值.`SshError` 的 `message` 只传具体详情,异常构造时统一添加类型标题.`str(error)` 返回完整错误消息,例如 `SSH 认证失败: denied`;详情为空时只返回类型标题.`error.cause` 保留原始异常.客户端名称、地址等告警上下文由调用方按需拼接.
 
 ## 开发
 

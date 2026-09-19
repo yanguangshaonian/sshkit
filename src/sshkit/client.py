@@ -46,12 +46,9 @@ class SshError(Exception):
         message: str,
         cause: Optional[Exception] = None,
     ) -> None:
-        super().__init__(message)
+        super().__init__(f"{kind}: {message}" if message else str(kind))
         self.kind = kind
         self.cause = cause
-
-    def build_alert_message(self, client_name: str, ip: str, port: int) -> str:
-        return f"({client_name} {ip}:{port}), 错误: {self}"
 
 
 # =========================
@@ -159,7 +156,7 @@ class SshClient:
             self._close_quietly(client)
             raise SshError(
                 kind=SshErrorKind.AUTHENTICATION,
-                message=f"SSH 认证失败: {exc}",
+                message=str(exc),
                 cause=exc,
             ) from exc
         except SshError:
@@ -169,14 +166,14 @@ class SshClient:
             self._close_quietly(client)
             raise SshError(
                 kind=SshErrorKind.TIMEOUT,
-                message=f"SSH 连接超时: {exc}",
+                message=f"建立连接: {exc}",
                 cause=exc,
             ) from exc
         except (socket.error, paramiko.SSHException) as exc:
             self._close_quietly(client)
             raise SshError(
                 kind=SshErrorKind.CONNECTION,
-                message=f"SSH 连接失败: {exc}",
+                message=str(exc),
                 cause=exc,
             ) from exc
 
@@ -207,7 +204,7 @@ class SshClient:
         if self._client is None or not self.is_connected():
             raise SshError(
                 kind=SshErrorKind.NOT_CONNECTED,
-                message="SSH 连接尚未建立或已失活,请由上层决定是否重连",
+                message="连接未建立或已失活,请由上层决定是否重连",
             )
 
         stdin = None
@@ -225,7 +222,7 @@ class SshClient:
             if transport is None or not transport.is_active():
                 raise SshError(
                     kind=SshErrorKind.NOT_CONNECTED,
-                    message="SSH 连接尚未建立或已失活,请由上层决定是否重连",
+                    message="连接未建立或已失活,请由上层决定是否重连",
                 )
 
             open_timeout = (
@@ -294,7 +291,7 @@ class SshClient:
             if exit_status < 0:
                 raise SshError(
                     kind=SshErrorKind.TRANSPORT,
-                    message="SSH 命令未返回有效退出状态",
+                    message="命令未返回有效退出状态",
                 )
             return CommandResult(
                 exit_status=exit_status,
@@ -305,7 +302,7 @@ class SshClient:
         except socket.timeout as exc:
             raise SshError(
                 kind=SshErrorKind.TIMEOUT,
-                message=f"SSH 命令执行超时: {exc}",
+                message=f"执行命令 {command}: {exc}",
                 cause=exc,
             ) from exc
         except (socket.error, EOFError, paramiko.SSHException) as exc:
@@ -313,7 +310,7 @@ class SshClient:
                 raise self._command_timeout(command, exc) from exc
             raise SshError(
                 kind=SshErrorKind.TRANSPORT,
-                message=f"SSH 传输异常: {exc}",
+                message=str(exc),
                 cause=exc,
             ) from exc
         finally:
@@ -333,7 +330,7 @@ class SshClient:
     ) -> SshError:
         return SshError(
             kind=SshErrorKind.TIMEOUT,
-            message=f"SSH 命令执行超时: {command}",
+            message=f"执行命令 {command}",
             cause=cause,
         )
 
@@ -389,6 +386,6 @@ class SshClient:
             last_error = password_error
         raise SshError(
             kind=SshErrorKind.KEY_LOAD,
-            message=f"无法加载私钥文件: {key_path}",
+            message=f"{key_path}: {last_error}",
             cause=last_error,
         ) from last_error

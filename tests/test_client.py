@@ -19,10 +19,10 @@ from sshkit import CommandResult, SshClient, SshError, SshErrorKind
         (SshErrorKind.TRANSPORT, "transport", "SSH 传输异常"),
     ],
 )
-def test_error_kind_and_alert_message(kind, value, title):
+def test_error_kind_and_message(kind, value, title):
     cause = ValueError("测试错误")
     message = f"{title}: {cause}"
-    error = SshError(kind, message, cause)
+    error = SshError(kind, str(cause), cause)
 
     assert str(kind) == title
     assert kind.value == value
@@ -30,9 +30,7 @@ def test_error_kind_and_alert_message(kind, value, title):
     assert error.args == (message,)
     assert error.kind is kind
     assert error.cause is cause
-    assert error.build_alert_message("host", "192.0.2.10", 2222) == (
-        f"(host 192.0.2.10:2222), 错误: {message}"
-    )
+    assert str(SshError(kind, "")) == title
 
 
 class FakeTransport:
@@ -185,6 +183,7 @@ def test_run_once_timeout_closes_client_and_channel():
         client.run_once("hang", timeout_seconds=0.03)
 
     assert error_info.value.kind == SshErrorKind.TIMEOUT
+    assert str(error_info.value) == "SSH 操作超时: 执行命令 hang"
     assert client._client.closed
     assert channel.closed
 
@@ -326,6 +325,12 @@ def test_connect_maps_errors_and_closes_client(
     assert error_info.value.kind == expected_kind
     assert error_info.value.cause is connect_error
     assert error_info.value.__cause__ is connect_error
+    detail = (
+        f"建立连接: {connect_error}"
+        if expected_kind is SshErrorKind.TIMEOUT
+        else str(connect_error)
+    )
+    assert str(error_info.value) == f"{expected_kind}: {detail}"
     assert paramiko_client.closed
 
 
