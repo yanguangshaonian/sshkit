@@ -21,16 +21,60 @@ from sshkit import CommandResult, SshClient, SshError, SshErrorKind
 )
 def test_error_kind_and_message(kind, value, title):
     cause = ValueError("测试错误")
-    message = f"{title}: {cause}"
-    error = SshError(kind, str(cause), cause)
+    message = f"[example-client 192.0.2.10:2222] {title}: {cause}"
+    error = SshError("example-client", "192.0.2.10", 2222, kind, str(cause), cause)
 
     assert str(kind) == title
     assert kind.value == value
     assert str(error) == message
     assert error.args == (message,)
+    assert error.client_name == "example-client"
+    assert error.ip == "192.0.2.10"
+    assert error.port == 2222
     assert error.kind is kind
     assert error.cause is cause
-    assert str(SshError(kind, "")) == title
+    assert str(SshError("example-client", "192.0.2.10", 2222, kind, "")) == (
+        f"[example-client 192.0.2.10:2222] {title}"
+    )
+
+
+@pytest.mark.parametrize("missing", ["client_name", "ip", "port"])
+def test_error_requires_identity(missing):
+    arguments = {
+        "client_name": "example-client",
+        "ip": "192.0.2.10",
+        "port": 2222,
+        "kind": SshErrorKind.NOT_CONNECTED,
+        "message": "连接未建立",
+    }
+    del arguments[missing]
+
+    with pytest.raises(TypeError, match=missing):
+        SshError(**arguments)
+
+
+def test_error_rejects_old_signature():
+    with pytest.raises(TypeError):
+        SshError(SshErrorKind.NOT_CONNECTED, "连接未建立")
+
+
+def test_run_once_without_connection_preserves_identity():
+    client = SshClient("example-client", "192.0.2.10", 2222, "user", password="x")
+
+    with pytest.raises(SshError) as error_info:
+        client.run_once("command")
+
+    error = error_info.value
+    assert (error.client_name, error.ip, error.port) == (
+        "example-client", "192.0.2.10", 2222
+    )
+    assert error.kind is SshErrorKind.NOT_CONNECTED
+    assert error.cause is None
+    assert error.__cause__ is None
+    assert str(error) == (
+        "[example-client 192.0.2.10:2222] SSH 尚未连接: "
+        "连接未建立或已失活,请由上层决定是否重连"
+    )
 
 
 class FakeTransport:
@@ -183,7 +227,7 @@ def test_run_once_timeout_closes_client_and_channel():
         client.run_once("hang", timeout_seconds=0.03)
 
     assert error_info.value.kind == SshErrorKind.TIMEOUT
-    assert str(error_info.value) == "SSH 操作超时: 执行命令 hang"
+    assert str(error_info.value) == "[host 127.0.0.1:22] SSH 操作超时: 执行命令 hang"
     assert client._client.closed
     assert channel.closed
 
@@ -330,7 +374,10 @@ def test_connect_maps_errors_and_closes_client(
         if expected_kind is SshErrorKind.TIMEOUT
         else str(connect_error)
     )
-    assert str(error_info.value) == f"{expected_kind}: {detail}"
+    assert error_info.value.client_name == "example-client"
+    assert error_info.value.ip == "192.0.2.10"
+    assert error_info.value.port == 22
+    assert str(error_info.value) == f"[example-client 192.0.2.10:22] {expected_kind}: {detail}"
     assert paramiko_client.closed
 
 

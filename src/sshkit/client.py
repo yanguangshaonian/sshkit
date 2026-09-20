@@ -42,11 +42,18 @@ class SshErrorKind(Enum):
 class SshError(Exception):
     def __init__(
         self,
+        client_name: str,
+        ip: str,
+        port: int,
         kind: SshErrorKind,
         message: str,
         cause: Optional[Exception] = None,
     ) -> None:
-        super().__init__(f"{kind}: {message}" if message else str(kind))
+        detail = f"{kind}: {message}" if message else str(kind)
+        super().__init__(f"[{client_name} {ip}:{port}] {detail}")
+        self.client_name = client_name
+        self.ip = ip
+        self.port = port
         self.kind = kind
         self.cause = cause
 
@@ -155,6 +162,9 @@ class SshClient:
         except paramiko.AuthenticationException as exc:
             self._close_quietly(client)
             raise SshError(
+                client_name=self.client_name,
+                ip=self.ip,
+                port=self.port,
                 kind=SshErrorKind.AUTHENTICATION,
                 message=str(exc),
                 cause=exc,
@@ -165,6 +175,9 @@ class SshClient:
         except socket.timeout as exc:
             self._close_quietly(client)
             raise SshError(
+                client_name=self.client_name,
+                ip=self.ip,
+                port=self.port,
                 kind=SshErrorKind.TIMEOUT,
                 message=f"建立连接: {exc}",
                 cause=exc,
@@ -172,6 +185,9 @@ class SshClient:
         except (socket.error, paramiko.SSHException) as exc:
             self._close_quietly(client)
             raise SshError(
+                client_name=self.client_name,
+                ip=self.ip,
+                port=self.port,
                 kind=SshErrorKind.CONNECTION,
                 message=str(exc),
                 cause=exc,
@@ -203,6 +219,9 @@ class SshClient:
             raise ValueError("timeout_seconds 必须大于 0")
         if self._client is None or not self.is_connected():
             raise SshError(
+                client_name=self.client_name,
+                ip=self.ip,
+                port=self.port,
                 kind=SshErrorKind.NOT_CONNECTED,
                 message="连接未建立或已失活,请由上层决定是否重连",
             )
@@ -221,6 +240,9 @@ class SshClient:
             transport = self._client.get_transport()
             if transport is None or not transport.is_active():
                 raise SshError(
+                    client_name=self.client_name,
+                    ip=self.ip,
+                    port=self.port,
                     kind=SshErrorKind.NOT_CONNECTED,
                     message="连接未建立或已失活,请由上层决定是否重连",
                 )
@@ -290,6 +312,9 @@ class SshClient:
             exit_status = channel.recv_exit_status()
             if exit_status < 0:
                 raise SshError(
+                    client_name=self.client_name,
+                    ip=self.ip,
+                    port=self.port,
                     kind=SshErrorKind.TRANSPORT,
                     message="命令未返回有效退出状态",
                 )
@@ -301,6 +326,9 @@ class SshClient:
 
         except socket.timeout as exc:
             raise SshError(
+                client_name=self.client_name,
+                ip=self.ip,
+                port=self.port,
                 kind=SshErrorKind.TIMEOUT,
                 message=f"执行命令 {command}: {exc}",
                 cause=exc,
@@ -309,6 +337,9 @@ class SshClient:
             if timed_out.is_set() or self._deadline_expired(deadline):
                 raise self._command_timeout(command, exc) from exc
             raise SshError(
+                client_name=self.client_name,
+                ip=self.ip,
+                port=self.port,
                 kind=SshErrorKind.TRANSPORT,
                 message=str(exc),
                 cause=exc,
@@ -323,12 +354,15 @@ class SshClient:
     def _deadline_expired(deadline: Optional[float]) -> bool:
         return deadline is not None and time.monotonic() >= deadline
 
-    @staticmethod
     def _command_timeout(
+        self,
         command: str,
         cause: Optional[Exception] = None,
     ) -> SshError:
         return SshError(
+            client_name=self.client_name,
+            ip=self.ip,
+            port=self.port,
             kind=SshErrorKind.TIMEOUT,
             message=f"执行命令 {command}",
             cause=cause,
@@ -355,8 +389,8 @@ class SshClient:
     # 加载私钥
     # 依次尝试常见私钥格式
     # =========================
-    @staticmethod
     def _load_private_key(
+        self,
         key_path: str,
         key_passphrase: Optional[str] = None,
     ):
@@ -373,6 +407,9 @@ class SshClient:
                 return key_loader(key_path, password=key_passphrase)
             except OSError as exc:
                 raise SshError(
+                    client_name=self.client_name,
+                    ip=self.ip,
+                    port=self.port,
                     kind=SshErrorKind.KEY_LOAD,
                     message=f"无法读取私钥文件: {key_path}: {exc}",
                     cause=exc,
@@ -385,6 +422,9 @@ class SshClient:
         if password_error is not None:
             last_error = password_error
         raise SshError(
+            client_name=self.client_name,
+            ip=self.ip,
+            port=self.port,
             kind=SshErrorKind.KEY_LOAD,
             message=f"{key_path}: {last_error}",
             cause=last_error,
